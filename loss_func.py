@@ -18,7 +18,7 @@ def PCC_mean(outputs, labels):
   return pcc_sum/outputs.shape[0]
 
 def calc_loss(outputs, labels, metrics):
-  npcc_weight = 0
+  npcc_weight = 0 #if npcc_weight = 1, use npcc loss; if npcc_weight = 0, use bce loss.
   pcc = PCC_mean(outputs, labels) #losses are averaged over batch
   bce = F.binary_cross_entropy(outputs, labels)
   loss = -pcc*npcc_weight+bce*(1-npcc_weight)
