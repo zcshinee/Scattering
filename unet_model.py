@@ -1,198 +1,164 @@
 import torch
 import torch.nn as nn
 
-def double_conv(in_channels, out_channels):
-    return nn.Sequential(
-        nn.Conv2d(in_channels, out_channels, 3, padding=1),
-        # nn.Dropout(p=0.5),
-        nn.BatchNorm2d(out_channels), 
-        nn.ELU(alpha=1.0, inplace=True),
-        nn.Conv2d(out_channels, out_channels, 3, padding=1),
-        # nn.Dropout(p=0.5),
-        nn.BatchNorm2d(out_channels), 
-        nn.ELU(alpha=1.0, inplace=True)
-    )   
+class Dense_Block(nn.Module):
+  def __init__(self, in_channels,nb_layers,growth_rate):
+    super(Dense_Block, self).__init__()
+    # Batch Normalization
+    self.bn = nn.BatchNorm2d(num_features = in_channels)
+    # RELU
+    self.relu = nn.ReLU(inplace = True)
+    # Convolution
+    self.conv1 = nn.Conv2d(in_channels, out_channels = growth_rate, kernel_size = (5,5), stride = 1, padding = (4,4), dilation=(2,2))
+    # Dropout 
+    self.drop=nn.Dropout(p=0.5)
+  def forward(self, x, drop_out, nb_layers):
+    # forward pass
+    lst=[x]
+    # Note: The Li model starts with a non-empty list to maintain the correct dimensions 
+    for i in range(nb_layers):
+      x1 = self.bn(x) 
+      x1 = self.relu(x1)
+      x1 = self.conv1(x1)
+      if drop_out==True:
+        x1 = self.drop(x1)
+      else:
+        x1=x1
+      x_out= x1
+      lst.append(x_out)
+      # concatenate along the channel dimension
+    x_final=torch.cat(lst, dim=1)
+    return x_final   
 
 
+######################################################################################    
+#####################################################################################
+####### ******************CONSTRUCT UP- CONVOLUTION FUNCTION*****************#########
+#####################################################################################
 
-class UNet(nn.Module):
-
-    def __init__(self, n_class):
-        super().__init__()
-                
-        self.dconv_down1 = double_conv(1, 64) 
-        self.dconv_down2 = double_conv(64, 128)
-        self.dconv_down3 = double_conv(128, 256)
-        self.dconv_down4 = double_conv(256, 512)
-               
-
-        self.maxpool = nn.MaxPool2d(2)
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.dropout = nn.Dropout(p = 0.1)        
-        
-        self.dconv_up3 = double_conv(256 + 512, 256)
-        self.dconv_up2 = double_conv(256 + 128, 128)
-        self.dconv_up1 = double_conv(128 + 64, 64)
-        
-        self.conv_last = nn.Conv2d(64, n_class, 1)
-        self.threshold = nn.Sigmoid()
-        
-        
-    def forward(self, x):
-        conv1 = self.dconv_down1(x)
-        x = self.maxpool(conv1)
-
-        conv2 = self.dconv_down2(x)
-        x = self.maxpool(conv2)
-        
-        conv3 = self.dconv_down3(x)
-        x = self.maxpool(conv3)   
-
-        x = self.dconv_down4(x)
-        
-        x = self.upsample(x)        
-        x = torch.cat([x, conv3], dim=1)
-        
-        x = self.dconv_up3(x)
-        x = self.upsample(x)        
-        x = torch.cat([x, conv2], dim=1)       
-
-        x = self.dconv_up2(x)
-        x = self.upsample(x)        
-        x = torch.cat([x, conv1], dim=1) 
-        
-        x = self.dconv_up1(x)
-        
-        out = self.conv_last(x)
-        out = self.threshold(out) 
-        return out
-def conv_factory(in_channels, out_channels):
-  return nn.Sequential(
-      nn.BatchNorm2d(in_channels),
-      nn.ReLU(inplace=True),
-      nn.Conv2d(in_channels, out_channels, 5, padding=4, dilation=2),
-      nn.Dropout(p=0.5)
-  )
-
-def conv_act(in_channels, out_channels):
-  return nn.Sequential(
-      nn.Conv2d(in_channels, out_channels, 3, padding=1),
-      nn.ReLU(inplace=True)
-  )
-
-class DenseBlock(nn.Module):
-  def __init__(self, in_channels, nlayer):
-    super().__init__()
-    self.conv_fac1 = conv_factory(in_channels, 16)
-    self.conv_fac2 = conv_factory(in_channels+16, 16)
-    self.conv_fac3 = conv_factory(in_channels+16*2, 16)
-    self.conv_fac4 = conv_factory(in_channels+16*3, 16)
-    self.nlayer = nlayer
-
+class Up_Sample(nn.Module):
+  def __init__(self, in_layers, out_layers):
+    super(Up_Sample, self).__init__()
+    # first upsample
+    self.upsamp=nn.Upsample(scale_factor=2, mode='nearest')
+    # then, put through convolution where the input and output layer numbers will be specified
+    # when the function is called
+    # NOTE: IN ORDER TO MAKE THE DIMENSIONS, WORK A DILATION RATE=2 WAS USED, this is the only divergence from the Li model
+    self.conv=nn.Conv2d(in_layers, out_layers, kernel_size=(2,2), stride=1, padding = (1,1), dilation=(2, 2))
+    self.relu=nn.ReLU(inplace = True)
   def forward(self, x):
-    cv1 = self.conv_fac1(x)
-    x = torch.cat([x, cv1], dim=1)
-
-    cv2 = self.conv_fac2(x)
-    x = torch.cat([x, cv2], dim=1)
-
-    cv3 = self.conv_fac3(x)
-    x = torch.cat([x, cv3], dim=1)
-
-    if self.nlayer == 4:
-      cv4 = self.conv_fac4(x)
-      x = torch.cat([x, cv4], dim=1)
-    
+    x = self.upsamp(x)
+    x = self.conv(x)
+    x = self.relu(x)
     return x
 
-class DenseNet(nn.Module):
-  def __init__(self):
-    super().__init__()
-    self.conv_down1 = conv_act(1, 64)
-    self.dense1 = DenseBlock(64, 4)
-
-    self.conv_down2 = conv_act(64+64, 128)
-    self.dense2 = DenseBlock(128, 4)
-
-    
-    self.conv_down3 = conv_act(128+64, 256)
-    self.dense3 = DenseBlock(256, 4)
-
-    self.conv_down4 = conv_act(256+64, 512)
-    self.dense4 = DenseBlock(512, 4)
-
-    self.conv_down5 = conv_act(512+64, 1024)
-    self.dense5 = DenseBlock(1024, 4)
-
-    self.conv_up6 = conv_act(1024+64, 512)
-    self.dense6 = DenseBlock(512, 3)
-    self.conv_up62 = conv_act(512+48, 256)
-    
-    self.conv_up71 = conv_act(512+64, 256)
-    self.dense7 = DenseBlock(256, 3)
-    self.conv_up72 = conv_act(256+48, 128)
-
-    self.conv_up81 = conv_act(256+64, 128)
-    self.dense8 = DenseBlock(128, 3)
-    self.conv_up82 = conv_act(128+48, 64)
-
-    self.conv_up91 = conv_act(128+64, 64)
-    self.dense9 = DenseBlock(64, 3)
-    self.conv_up92 = conv_act(64+48, 32)
-    
-    self.conv_up10 = nn.Conv2d(32, 2, 3, padding=1)
-    self.threshold = nn.Softmax(dim=1)
-
-    self.maxpool = nn.MaxPool2d(2)
-    self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-   
-
-  def forward(self, x):
-    conv1 = self.conv_down1(x) #64,256,256
-    db1 = self.dense1(conv1) #128,256,256
-    pool1 = self.maxpool(db1) #128,128,128
-
-    conv2 = self.conv_down2(pool1) #128,128,128
-    db2 = self.dense2(conv2) #192,128,128
-    pool2 = self.maxpool(db2) #192,64,64
-
-    conv3 = self.conv_down3(pool2) #256,64,64
-    db3 = self.dense3(conv3) #320,64,64
-    pool3 = self.maxpool(db3) #320,32,32
-
-    conv4 = self.conv_down4(pool3) #512,32,32
-    db4 = self.dense4(conv4) #576,32,32
-    pool4 = self.maxpool(db4) #576,16,16
-
-    conv5 = self.conv_down5(pool4) #1024,16,16
-    db5 = self.dense5(conv5) #1088,16,16
-    up5 = self.upsample(db5) #1088,32,32
-    up5 = self.conv_up6(up5) #512,32,32
-    merge5 = torch.cat([db4, up5], dim=1) #1088,32,32
-
-    conv6 = self.conv_up6(merge5) #512,32,32
-    db6 = self.dense6(conv6) #560,32,32
-    up6 = self.upsample(db6) #560,64,64
-    up6 = self.conv_up62(up6) #256,64,64
-    merge6 = torch.cat([db3, up6], dim=1) #576,64,64
-
-    conv7 = self.conv_up71(merge6) #256,64,64
-    db7 = self.dense7(conv7) #304,64,64
-    up7 = self.upsample(db7) #304,128,128
-    up7 = self.conv_up72(up7) #128,128,128
-    merge7 = torch.cat([db2, up7], dim=1) #320,128,128
-
-    conv8 = self.conv_up81(merge7) #128,128,128
-    db8 = self.dense8(conv8) #176,128,128
-    up8 = self.upsample(db8) #176,256,256
-    up8 = self.conv_up82(up8) #64,256,256
-    merge8 = torch.cat([db1, up8], dim=1) #192,256,256
-
-    conv9 = self.conv_up91(merge8) #64,256,256
-    db9 = self.dense9(conv9) #112,256,256
-    up9 = self.conv_up92(db9) #32,256,256
-    
-    conv10 = self.conv_up10(up9) #1,256,256
-    output = self.threshold(conv10)
-    
-    return output
+##################################################################################
+##################################################################################
+#************************CONSTRUCT UNET******************************************#
+##################################################################################
+##################################################################################
+class UNet(nn.Module):
+    def __init__(self):
+        super(UNet, self).__init__()
+# THE REST OF THIS CODE BLOCK DEFINES THE ACTUAL NETWORK STRUCTURE... can be modified as needed
+        # Begin encoding path...
+        # PLACE DENSE BLOCKS IN ENCODING MODE
+        self.conv1=nn.Conv2d(in_channels=1, out_channels = 64, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db1=Dense_Block(in_channels=64,nb_layers=4,growth_rate=16)
+        self.pool1=torch.nn.MaxPool2d(kernel_size=(2,2), stride=None, padding=0)
+        self.conv2=nn.Conv2d(in_channels=128, out_channels = 128, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.db2=Dense_Block(in_channels=128,nb_layers=4,growth_rate=16)
+        self.pool2=torch.nn.MaxPool2d(kernel_size=(2,2), stride=None, padding=0)
+        self.conv3=nn.Conv2d(in_channels=192, out_channels = 256, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db3=Dense_Block(in_channels=256,nb_layers=4,growth_rate=16)
+        self.pool3=torch.nn.MaxPool2d(kernel_size=(2,2), stride=None, padding=0)
+        self.conv4=nn.Conv2d(in_channels=320, out_channels = 512, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db4=Dense_Block(in_channels=512,nb_layers=4,growth_rate=16)
+        self.pool4=torch.nn.MaxPool2d(kernel_size=(2,2), stride=None, padding=0)
+        self.conv5=nn.Conv2d(in_channels=576, out_channels = 1024, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db5=Dense_Block(in_channels=1024,nb_layers=4,growth_rate=16)
+        # ... encoding path complete
+        # Begin decoding path...
+        # PLACE DENSE BLOCKS IN DECODING MODE
+        self.up5=Up_Sample(in_layers=1088, out_layers=512)
+        #******** MERGE DEFINED IN FORWARD PASS ONLY 
+        self.conv6=nn.Conv2d(in_channels=1088, out_channels = 512, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db6=Dense_Block(in_channels=512,nb_layers=3,growth_rate=16)
+        self.up6=Up_Sample(in_layers=560, out_layers=256)
+        #********* MERGE IN FORWARD PASS ONLY
+        self.conv7=nn.Conv2d(in_channels=576, out_channels = 256, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db7=Dense_Block(in_channels=256,nb_layers=3,growth_rate=16)
+        self.up7=Up_Sample(in_layers=304, out_layers=128)
+        #********** MERGE IN FORARD PASS ONLY
+        self.conv8=nn.Conv2d(in_channels=320, out_channels = 128, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db8=Dense_Block(in_channels=128,nb_layers=3,growth_rate=16)
+        self.up8=Up_Sample(in_layers=176, out_layers=64)
+        #********** MERGE IN FORARD PASS ONLY
+        self.conv9=nn.Conv2d(in_channels=192, out_channels = 64, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)
+        self.db9=Dense_Block(in_channels=64,nb_layers=3,growth_rate=16)
+        self.conv10=nn.Conv2d(in_channels=112, out_channels = 32, kernel_size = (3,3), stride = 1, padding = (1,1))
+        self.relu=nn.ReLU(inplace = True)   
+        # previously, out_channels=1
+        self.conv11=nn.Conv2d(in_channels=32, out_channels = 1, kernel_size = (1,1), stride = 1, padding = (0,0))
+        
+    def forward(self, x):
+        # begin encoding...
+        C1 = self.conv1(x)
+        R1 = self.relu(C1)
+        DB1 = self.db1(R1, drop_out=False, nb_layers=4)
+        P1 = self.pool1(DB1)
+        C2 = self.conv2(P1)
+        R2 = self.relu(C2)
+        DB2 = self.db2(R2, drop_out=False, nb_layers=4)
+        P2 = self.pool2(DB2)
+        C3 = self.conv3(P2)
+        R3 = self.relu(C3)
+        DB3 = self.db3(R3, drop_out=False, nb_layers=4)
+        P3 = self.pool3(DB3)
+        C4 = self.conv4(P3)
+        R4 = self.relu(C4)
+        DB4 = self.db4(R4, drop_out=True, nb_layers=4)
+        P4 = self.pool4(DB4)
+        C5 = self.conv5(P4)
+        R5 = self.relu(C5)
+        DB5 = self.db5(R5, drop_out=True, nb_layers=4)
+        #... encoding complete
+        # Begin decoding...
+        U5 = self.up5(DB5)
+        # Merge 
+        M5 = torch.cat((DB4, U5), dim=1)
+        C6 = self.conv6(M5)
+        R6 = self.relu(C6)
+        DB6 = self.db6(R6, drop_out=False, nb_layers=3)
+        U6 = self.up6(DB6)
+        # Merge
+        M6 = torch.cat((DB3, U6), dim=1)
+        C7 = self.conv7(M6)
+        R7 = self.relu(C7)
+        DB7 = self.db7(R7, drop_out=False, nb_layers=3)
+        U7 = self.up7(DB7)
+        # Merge
+        M7 = torch.cat((DB2, U7), dim=1)
+        C8 = self.conv8(M7)
+        R8 = self.relu(C8)
+        DB8 = self.db8(R8, drop_out=False, nb_layers=3)
+        U8 = self.up8(DB8)
+        # Merge
+        M8 = torch.cat((DB1, U8), dim=1)
+        C9 = self.conv9(M8)
+        R9 = self.relu(C9)
+        DB9 = self.db9(R9, drop_out=False, nb_layers=3)
+        C10 = self.conv10(DB9)
+        R10 = self.relu(C10)
+        C11 = self.conv11(R10)
+        # Sigmoided added as final activation layer for classification for use with BCE Loss (calculated element-wise within the 3D tensors)
+        OUT = torch.sigmoid(C11)
+        return OUT 
