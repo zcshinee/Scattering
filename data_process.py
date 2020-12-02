@@ -26,27 +26,9 @@ def LoadMulImage(file_dirs):
   return image_list
 
 class ImageDataset():
-  def __init__(self, label_dir, input_dir, trans):
-    self.input_images = LoadImage(input_dir)
-    self.label_images = LoadImage(label_dir)
-    self.transform = trans
-
-  def __len__(self):
-    return len(self.input_images)
-
-  def __getitem__(self, idx):
-    image = self.input_images[idx]
-    label = self.label_images[idx]
-    if self.transform:
-      image = self.transform(image)
-      label = self.transform(label)  
-    return image, label
-
-
-class ImageDataset2():
   def __init__(self, label_dir, input_dirs, trans):
     self.input_images = LoadMulImage(input_dirs)
-    self.len = len(self.input_images)
+    self.len = len(input_dirs)
     self.label_images = LoadImage(label_dir)*self.len
     self.transform = trans
 
@@ -59,6 +41,5 @@ class ImageDataset2():
 
     image = self.transform(image)
     label = self.transform(label)# turn into grayscale image in 256 size
-    label2 = 1-label
 
-    return image, torch.cat([label, label2], dim=0)
+    return image, label
