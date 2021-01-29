@@ -1,4 +1,4 @@
-# Cheng_Jared
+# Scattering media
 This folder contains the code for 'Learning to see through variable scattering media'.
 
 The main training process is in descatter_exp.ipynb;
