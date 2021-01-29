@@ -1,5 +1,5 @@
 # Cheng_Jared
-This folder contains the code for 6.862 proj titled 'Learning to see through variable scattering media' by Cheng and Jared.
+This folder contains the code for 'Learning to see through variable scattering media'.
 
 The main training process is in descatter_exp.ipynb;
 
