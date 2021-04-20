@@ -9,4 +9,4 @@ Data read and pre-processing functions are in data_process.py;
 
 Loss and metrics calculations are in loss.func.py;
 
-Raw data from four different diffusers can be found in 'raw' folder.
+Raw data from four different diffusers can be found in 'raw data' folder.
